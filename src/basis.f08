@@ -17,9 +17,9 @@ module basis
 
   implicit none
 
-  ! private
-  ! public setup_states, setup_radial, valid_states, &
-  !     partial_waves, overlap, kinetic
+  private
+  public setup_states, setup_radial, valid_states, &
+      partial_waves, overlap, kinetic
 
   ! t_basis
   !

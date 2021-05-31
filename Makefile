@@ -182,6 +182,7 @@ obj/%.o : $(firstword $(addprefix src/%,$(SUFS)))
 
 # explicit target dependencies
 obj/parameters.o : src/debug.h
+obj/integrate.o : src/debug.h obj/parameters.o
 obj/basis.o : src/debug.h obj/parameters.o
 
 # implicit rule for binary targets
