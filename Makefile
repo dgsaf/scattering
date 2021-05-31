@@ -234,6 +234,7 @@ info_files :
 	@echo "> SUFS := $(SUFS)"
 	@echo "> OBJS := $(OBJS)"
 	@echo "> MODS := $(MODS)"
+	@echo "> BINS := $(BINS)"
 
 # information about current make commands available
 .PHONY : info_make
