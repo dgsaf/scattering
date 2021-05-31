@@ -5,11 +5,12 @@ module basis
 
   ! debug compilation
   ! - <DEBUG_BASIS>: verbosity of debug statements, local to this file.
-#define DEBUG_BASIS 2
+#define DEBUG_BASIS 3
 
   ! local debug verbosity cannot be lower than the global debug verbosity
 #if ((defined DEBUG) && (defined DEBUG_BASIS) && (DEBUG > DEBUG_BASIS))
-  DEBUG_BASIS = DEBUG
+#undef DEBUG_BASIS
+#define DEBUG_BASIS DEBUG
 #endif
 
   use parameters
@@ -17,7 +18,7 @@ module basis
   implicit none
 
   ! private
-  ! public setup_states, setup_radial, valid_states, valid_radial, &
+  ! public setup_states, setup_radial, valid_states, &
   !     partial_waves, overlap, kinetic
 
   ! t_basis
@@ -96,7 +97,7 @@ module basis
 
     integer :: n_r
     double precision , allocatable :: r_grid(:)
-    double precision , allocatable :: radial(:, :)
+    double precision , allocatable :: radial(:, :, :)
   end type t_basis
 
 contains
@@ -331,7 +332,7 @@ contains
 
     do ll = 0, l_max
 
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
       write (STDERR, *) DBG, "<l> = ", ll
 #endif
 
@@ -339,7 +340,7 @@ contains
           .or. (basis%has_sym_parity .and. ((-1)**ll /= basis%parity))) then
         basis%n_basis_l(ll) = 0
 
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
         write (STDERR, *) DBG, "ignoring due to basis symmetry"
 #endif
       else
@@ -403,12 +404,12 @@ contains
     ii = 0
 
     do mm = 0, l_max
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
       write (STDERR, *) DBG, "<m> = ", mm
 #endif
 
       if (basis%has_sym_m .and. (mm /= abs(basis%m))) then
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
         write (STDERR, *) DBG, "ignoring due to symmetry"
         write (STDERR, *) DBG, "cycling"
 #endif
@@ -416,13 +417,13 @@ contains
       end if
 
       do ll = 0, l_max
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
         write (STDERR, *) DBG, "<l> = ", ll
 #endif
 
         ! case of <m> = +<mm>
         if ((ll < abs(mm)) .or. (mm /= basis%m)) then
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
           write (STDERR, *) DBG, "ignoring due to symmetry"
           write (STDERR, *) DBG, "cycling"
 #endif
@@ -440,7 +441,7 @@ contains
 
         ! avoid duplication for case of <mm> = 0
         if (mm == 0) then
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
           write (STDERR, *) DBG, "ignoring to avoid duplication"
           write (STDERR, *) DBG, "cycling"
 #endif
@@ -449,7 +450,7 @@ contains
 
         ! case of <m> = -<mm>
         if ((ll < abs(mm)) .or. (mm /= -basis%m)) then
-#if (DEBUG_BASIS >= 4)
+#if (DEBUG_BASIS >= 3)
           write (STDERR, *) DBG, "ignoring due to symmetry"
           write (STDERR, *) DBG, "cycling"
 #endif
@@ -489,5 +490,612 @@ contains
 #endif
 
   end subroutine setup_states
+
+  ! setup_radial
+  !
+  ! For given <basis>, <n_r>, <r_grid>, calculates the radial functions
+  ! > varphi_{k_{i}, l_{i}}(r) for i = 1, .., <n_basis>
+  ! on the radial values specified in the grid.
+  !
+  ! Requires the following variables in <basis> to have already been setup:
+  ! - <l_max>;
+  ! - <n_basis_l>;
+  ! - <alpha_l>;
+  ! - <n_basis>.
+  ! That is, a call to setup_states() should have already been made.
+  !
+  ! Returns an error code, <i_err>, where:
+  ! - 0 indicates successful execution;
+  ! - 1 indicates invalid arguments.
+  subroutine setup_radial (basis, n_r, r_grid, i_err)
+    type(t_basis) , intent(inout) :: basis
+    integer , intent(in) :: n_r
+    double precision , intent(in) :: r_grid(n_r)
+    integer , intent(out) :: i_err
+    double precision , allocatable :: norm(:)
+    double precision :: alpha_grid(n_r)
+    double precision :: alpha
+    integer :: n_b_l
+    integer :: ii, kk, ll
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "subroutine setup_radial()"
+#endif
+
+    ! check if arguments are valid
+    i_err = 0
+
+    if (.not. valid_states(basis)) then
+      i_err = 1
+    end if
+
+    if (n_r < 1) then
+      i_err = 1
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<n_r> < 1"
+#endif
+    end if
+
+    ! handle invalid arguments
+    if (i_err /= 0) then
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<i_err> = ", i_err
+#endif
+#if (DEBUG_BASIS >= 1)
+      write (STDERR, *) DBG, ERR, "arguments are invalid"
+      write (STDERR, *) DBG, ERR, &
+          "<basis> array variables will be left un-allocated"
+      write (STDERR, *) DBG, ERR, "exiting subroutine setup_radial()"
+#endif
+      return
+    end if
+
+#if (DEBUG_BASIS >= 2)
+    write (STDERR, *) DBG, "arguments are valid"
+#endif
+
+    ! set <n_r>
+    basis%n_r = n_r
+
+#if (DEBUG_BASIS >= 2)
+    write (STDERR, *) DBG, "<basis%n_r> = ", basis%n_r
+#endif
+
+    ! allocate <r_grid>, <radial>
+    allocate(basis%r_grid(n_r))
+    allocate(basis%radial(n_r, maxval(basis%n_basis_l(:)), 0:basis%l_max))
+
+#if (DEBUG_BASIS >= 2)
+    write (STDERR, *) DBG, "allocated <basis%r_grid>"
+    write (STDERR, *) DBG, "allocated <basis%radial>"
+#endif
+
+    ! basis: set <r_grid>
+    basis%r_grid(:) = r_grid(:)
+
+#if (DEBUG_BASIS >= 5)
+    write (STDERR, *) DBG, "<radial index>, <basis%r_grid>"
+    do ii = 1, basis%n_r
+      write (STDERR, *) DBG, ii, basis%r_grid(ii)
+    end do
+#endif
+
+    ! loop over <l>, basis: set <radial>
+    basis%radial(:, :, :) = 0.0d0
+
+    do ll = 0, basis%l_max
+
+#if (DEBUG_BASIS >= 3)
+      write (STDERR, *) DBG, "<l> = ", ll
+#endif
+
+      ! in-line <n_basis_l>, <alpha> for current <l>
+      n_b_l = basis%n_basis_l(ll)
+      alpha = basis%alpha_l(ll)
+
+#if (DEBUG_BASIS >= 3)
+      write (STDERR, *) DBG, "<n_b_l> = ", n_b_l
+      write (STDERR, *) DBG, "<alpha> = ", alpha
+#endif
+
+      ! if there are no basis states for this value of <l>, then cycle
+      if (n_b_l == 0) then
+
+#if (DEBUG_BASIS >= 3)
+        write (STDERR, *) DBG, "no basis states for this value of <l>"
+        write (STDERR, *) DBG, "cycling"
+#endif
+        cycle
+      end if
+
+      ! allocate normalisation constant array
+      allocate(norm(n_b_l))
+
+#if (DEBUG_BASIS >= 3)
+      write (STDERR, *) DBG, "allocated <norm>"
+#endif
+
+      ! recurrence relation for basis normalisation constants
+#if (DEBUG_BASIS >= 3)
+      write (STDERR, *) DBG, "<k>, <norm>"
+#endif
+
+      if (n_b_l >= 1) then
+        norm(1) = sqrt(alpha / dble((ll+1) * gamma(dble((2*ll)+2))))
+
+#if (DEBUG_BASIS >= 3)
+        write (STDERR, *) DBG, 1, norm(1)
+#endif
+      end if
+
+      if (n_b_l >= 2) then
+        do kk = 2, n_b_l
+          norm(kk) = norm(kk-1) * sqrt(dble((kk-1) * (kk-1+ll)) &
+              / dble((kk+ll) * (kk+(2*ll))))
+
+#if (DEBUG_BASIS >= 3)
+          write (STDERR, *) DBG, kk, norm(kk)
+#endif
+        end do
+      end if
+
+      ! in-line <alpha_grid> for current <l>
+      alpha_grid(:) = alpha * r_grid(:)
+
+#if (DEBUG_BASIS >= 5)
+      write (STDERR, *) DBG, "<radial index>, <alpha_grid>"
+      do ii = 1, basis%n_r
+        write (STDERR, *) DBG, ii, alpha_grid(ii)
+      end do
+#endif
+
+      ! recurrence relation for basis functions
+      if (n_b_l >= 1) then
+        basis%radial(:, 1, ll) = ((2.0d0 * alpha_grid(:)) ** (ll+1)) &
+            * exp(-alpha_grid(:))
+      end if
+
+      if (n_b_l >= 2) then
+        basis%radial(:, 2, ll) = 2.0d0 * (dble(ll+1) - alpha_grid(:)) &
+            * basis%radial(:, 1, ll)
+      end if
+
+      if (n_b_l >= 3) then
+        do kk = 3, n_b_l
+          basis%radial(:, kk, ll) = &
+              ((2.0d0 * (dble(kk-1+ll) - alpha_grid(:)) &
+              * basis%radial(:, kk-1, ll)) &
+              - dble(kk+(2*ll)-1) * basis%radial(:, kk-2, ll)) &
+              / dble(kk-1)
+        end do
+      end if
+
+#if (DEBUG_BASIS >= 5)
+      write (STDERR, *) DBG, "<radial index>, <basis%radial> (un-normalised)"
+      do ii = 1, basis%n_r
+        write (STDERR, *) DBG, ii, basis%radial(ii, :, ll)
+      end do
+#endif
+
+      ! scale basis radial functions by normalisation constants
+      if (n_b_l >= 1) then
+        do kk = 1, n_b_l
+          basis%radial(:, kk, ll) = basis%radial(:, kk, ll) * norm(kk)
+        end do
+      end if
+
+#if (DEBUG_BASIS >= 5)
+      write (STDERR, *) DBG, "<radial index>, <basis%radial>"
+      do ii = 1, basis%n_r
+        write (STDERR, *) DBG, ii, basis%radial(ii, :, ll)
+      end do
+#endif
+
+      ! deallocate norm
+      deallocate(norm)
+
+#if (DEBUG_BASIS >= 3)
+      write (STDERR, *) DBG, "deallocated <norm>"
+#endif
+
+    end do
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "end subroutine setup_radial()"
+#endif
+
+  end subroutine setup_radial
+
+  ! valid_states
+  !
+  ! For given <basis>, determines if the basis variables are valid. A <basis> is
+  ! invalid if:
+  ! - abs(<basis%parity>) /= 1;
+  ! - <basis%l_max> < abs(<basis%m>);
+  ! - <basis%l_max> < 0;
+  ! - <basis%n_basis> < 1;
+  ! - <basis%l_max> < 0;
+  ! - any(<basis%n_basis_l(:)> < 0);
+  ! - any(<basis%alpha_l(:)> < TOL).
+  logical function valid_states (basis)
+    type(t_basis) , intent(in) :: basis
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "function valid_states()"
+#endif
+
+    ! check if <basis> is valid
+    valid_states = .true.
+
+    if (basis%n_basis < 1) then
+      valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<basis%n_basis> < 1"
+#endif
+    end if
+
+    if (basis%has_sym_parity) then
+      if (abs(basis%parity) /= 1) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "abs(<basis%parity>) /= 1"
+#endif
+      end if
+
+      if (any(((-1) ** basis%l_list(:)) /= basis%parity)) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, &
+            "any(((-1) ** <basis%l_list(:)>) /= <basis%parity>)"
+#endif
+      end if
+    end if
+
+    if (basis%has_sym_m) then
+      if (basis%l_max < abs(basis%m)) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "<basis%l_max> < abs(<basis%m>)"
+#endif
+      end if
+
+      if (any(basis%m_list(:) /= basis%m)) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "any(<basis%m_list(:)> /= <basis%m>)"
+#endif
+      end if
+    end if
+
+    if (basis%has_sym_l) then
+      if (basis%l < 0) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "<basis%l> < 0"
+#endif
+      end if
+
+      if (basis%l > basis%l_max) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "<basis%l> > <basis%l_max>"
+#endif
+      end if
+
+      if (any(basis%l_list(:) /= basis%l)) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "any(<basis%l_list(:)> /= <basis%l>)"
+#endif
+      end if
+
+      if (basis%has_sym_m .and. (basis%l < abs(basis%m))) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "<basis%l> < abs(<basis%m>)"
+#endif
+      end if
+
+      if (basis%has_sym_parity .and. (((-1) ** basis%l) /= basis%parity)) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "(-1) ** <basis%l> /= <basis%parity>"
+#endif
+      end if
+    end if
+
+    if (basis%l_max < 0) then
+      valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<basis%l_max> < 0"
+#endif
+    else
+      if (any(basis%n_basis_l(:) < 0)) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "any(<basis%n_basis_l(:)> < 0)"
+#endif
+      end if
+
+      if (any(basis%alpha_l(:) < TOL)) then
+        valid_states = .false.
+#if (DEBUG_BASIS >= 2)
+        write (STDERR, *) DBG, ERR, "any(<basis%alpha_l(:)> < TOL)"
+#endif
+      end if
+    end if
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "end function valid_states()"
+#endif
+
+    return
+  end function valid_states
+
+  ! partial_waves
+  !
+  ! For given <basis>, <C>, where <C> is a coefficient matrix for a set of
+  ! states, in terms of <basis>, and where the <basis> has an imposed <m>
+  ! symmetry, calculate the partial waves of the states.
+  !
+  ! Returns an error code, <i_err>, where:
+  ! - 0 indicates successful execution;
+  ! - 1 indicates invalid arguments.
+  subroutine partial_waves (basis, C, pw, i_err)
+    type(t_basis) , intent(in) :: basis
+    double precision , intent(in) :: C(basis%n_basis, basis%n_basis)
+    double precision , intent(out) :: pw(basis%n_r, basis%l_max, basis%n_basis)
+    integer , intent(out) :: i_err
+    integer :: ii, jj, nn, kk, ll
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "subroutine partial_waves()"
+#endif
+
+    ! check if arguments are valid
+    i_err = 0
+
+    if (.not. valid_states(basis)) then
+      i_err = 1
+    end if
+
+    if (basis%n_r < 1) then
+      i_err = 1
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<basis%n_r> < 1"
+#endif
+    end if
+
+    if (.not. basis%has_sym_m) then
+      i_err = 1
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<basis%has_sym_m> == .false."
+#endif
+    end if
+
+    ! handle invalid arguments
+    if (i_err /= 0) then
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<i_err> = ", i_err
+#endif
+#if (DEBUG_BASIS >= 1)
+      write (STDERR, *) DBG, ERR, "arguments are invalid"
+      write (STDERR, *) DBG, ERR, "exiting subroutine partial_waves()"
+#endif
+      return
+    end if
+
+#if (DEBUG_BASIS >= 2)
+    write (STDERR, *) DBG, "arguments are valid"
+#endif
+
+    ! initialise <pw>
+    pw(:, :, :) = 0.0d0
+
+    ! calculate radial functions of expanded states
+    do ii = 1, basis%n_basis
+
+#if (DEBUG_BASIS >= 5)
+      write (STDERR, *) DBG, "<i> = " ii
+#endif
+
+#if (DEBUG_BASIS >= 5)
+      write (STDERR, *) DBG, "<radial index>, <pw>"
+#endif
+
+      do jj = 1, basis%n_r
+        do nn = 1, basis%n_basis
+          kk = basis%k_list(nn)
+          ll = basis%l_list(nn)
+
+          pw(jj, ll, ii) = pw(jj, ll, ii) &
+              + (C(nn, ii) * basis%radial(jj, kk, ll))
+        end do
+
+#if (DEBUG_BASIS >= 5)
+        write (STDERR, *) DBG, jj, pw(jj, :, ii)
+#endif
+
+      end do
+    end do
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "end subroutine partial_waves()"
+#endif
+
+  end subroutine partial_waves
+
+  ! overlap
+  !
+  ! For given <basis>, calculate the overlap matrix elements
+  ! > B_{i, j} = < phi_{i} | phi_{j} > for i, j = 1, .., <n_basis>
+  ! using analytic properties of the Laguerre basis.
+  !
+  ! Returns an error code, <i_err>, where:
+  ! - 0 indicates successful execution;
+  ! - 1 indicates invalid arguments.
+  subroutine overlap (basis, B, i_err)
+    type(t_basis) , intent(in) :: basis
+    double precision , intent(out) :: B(basis%n_basis, basis%n_basis)
+    integer , intent(out) :: i_err
+    integer :: k_i, l_i, m_i, k_j, l_j, m_j
+    integer :: ii, jj
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "subroutine overlap()"
+#endif
+
+    ! check if arguments are valid
+    i_err = 0
+
+    if (.not. valid_states(basis)) then
+      i_err = 1
+    end if
+
+    ! handle invalid arguments
+    if (i_err /= 0) then
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<i_err> = ", i_err
+#endif
+#if (DEBUG_BASIS >= 1)
+      write (STDERR, *) DBG, ERR, "arguments are invalid"
+      write (STDERR, *) DBG, ERR, "exiting subroutine overlap()"
+#endif
+      return
+    end if
+
+#if (DEBUG_BASIS >= 2)
+    write (STDERR, *) DBG, "arguments are valid"
+#endif
+
+    ! initialise <B>
+    B(:, :) = 0.0d0
+
+    ! calculate overlap matrix elements
+#if (DEBUG_BASIS >= 4)
+    write (STDERR, *) DBG, "<i>, <j>, <B(i, j)>"
+#endif
+
+    do jj = 1, basis%n_basis
+      k_j = basis%k_list(jj)
+      l_j = basis%l_list(jj)
+      m_j = basis%m_list(jj)
+
+      do ii = 1, basis%n_basis
+        k_i = basis%k_list(ii)
+        l_i = basis%l_list(ii)
+        m_i = basis%m_list(ii)
+
+        if ((l_i == l_j) .and. (m_i == m_j)) then
+          if (k_i == k_j) then
+            B(ii, jj) = 1.0d0
+          else if (k_i + 1 == k_j) then
+            B(ii, jj) = - 0.5d0 * sqrt(1.0d0 - &
+                (dble(l_i * (l_i + 1)) / dble((k_i + l_i) * (k_i + l_i + 1))))
+          else if (k_i == k_j + 1) then
+            B(ii, jj) = - 0.5d0 * sqrt(1.0d0 - &
+                (dble(l_j * (l_j + 1)) / dble((k_j + l_j) * (k_j + l_j + 1))))
+          end if
+
+#if (DEBUG_BASIS >= 4)
+          write (STDERR, *) DBG, ii, jj, B(ii, jj)
+#endif
+        end if
+      end do
+    end do
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "end subroutine overlap()"
+#endif
+
+  end subroutine overlap
+
+  ! kinetic
+  !
+  ! For given <basis>, calculate the kinetic matrix elements
+  ! > K_{i, j} = < phi_{i} | K | phi_{j} > for i, j = 1, .., <n_basis>
+  ! using analytic properties of the Laguerre basis.
+  !
+  ! Returns an error code, <i_err>, where:
+  ! - 0 indicates successful execution;
+  ! - 1 indicates invalid arguments.
+  subroutine kinetic (basis, K, i_err)
+    type(t_basis) , intent(in) :: basis
+    double precision , intent(out) :: K(basis%n_basis, basis%n_basis)
+    integer , intent(out) :: i_err
+    double precision :: alpha
+    integer :: k_i, l_i, m_i, k_j, l_j, m_j
+    integer :: ii, jj
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "subroutine kinetic()"
+#endif
+
+    ! check if arguments are valid
+    i_err = 0
+
+    if (.not. valid_states(basis)) then
+      i_err = 1
+    end if
+
+    ! handle invalid arguments
+    if (i_err /= 0) then
+#if (DEBUG_BASIS >= 2)
+      write (STDERR, *) DBG, ERR, "<i_err> = ", i_err
+#endif
+#if (DEBUG_BASIS >= 1)
+      write (STDERR, *) DBG, ERR, "arguments are invalid"
+      write (STDERR, *) DBG, ERR, "exiting subroutine kinetic()"
+#endif
+      return
+    end if
+
+#if (DEBUG_BASIS >= 2)
+    write (STDERR, *) DBG, "arguments are valid"
+#endif
+
+    ! initialise <K>
+    K(:, :) = 0.0d0
+
+    ! calculate kinetic matrix elements
+#if (DEBUG_BASIS >= 4)
+    write (STDERR, *) DBG, "<i>, <j>, <K(i, j)>"
+#endif
+
+    do jj = 1, basis%n_basis
+      k_j = basis%k_list(jj)
+      l_j = basis%l_list(jj)
+      m_j = basis%m_list(jj)
+
+      alpha = basis%alpha_l(l_j)
+
+      do ii = 1, basis%n_basis
+        k_i = basis%k_list(ii)
+        l_i = basis%l_list(ii)
+        m_i = basis%m_list(ii)
+
+        if ((l_i == l_j) .and. (m_i == m_j)) then
+          if (k_i == k_j) then
+            K(ii, jj) = 0.5d0 * (alpha ** 2)
+          else if (k_i + 1 == k_j) then
+            K(ii, jj) = (alpha ** 2) * 0.25d0 * sqrt(1.0d0 - &
+                (dble(l_i * (l_i + 1)) / dble((k_i + l_i) * (k_i + l_i + 1))))
+          else if (k_i == k_j + 1) then
+            K(ii, jj) = (alpha ** 2) * 0.25d0 * sqrt(1.0d0 - &
+                (dble(l_j * (l_j + 1)) / dble((k_j + l_j) * (k_j + l_j + 1))))
+          end if
+
+#if (DEBUG_BASIS >= 4)
+          write (STDERR, *) DBG, ii, jj, K(ii, jj)
+#endif
+        end if
+      end do
+    end do
+
+#if (DEBUG_BASIS >= 1)
+    write (STDERR, *) DBG, "end subroutine kinetic()"
+#endif
+
+  end subroutine kinetic
 
 end module basis
