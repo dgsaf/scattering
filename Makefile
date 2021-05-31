@@ -1,3 +1,8 @@
+# header
+
+
+# makefile configuration settings
+
 # make flags, with optional default values
 # COMPILERTYPE = (GCC|CLANG|AOMP|CRAY|INTEL)
 # GPUTYPE = (NVIDIA|AMD)
@@ -15,6 +20,9 @@ OPTFLAGS = -O$(OPTLEVEL)
 ifeq ($(PROFILER), ON)
 	OPTFLAGS += -pg -g
 endif
+
+
+# compiler selection
 
 # define c compilers
 GCC = gcc
@@ -109,7 +117,7 @@ endif
 
 ifeq ($(GPUTYPE), AMD)
 	GPUCC = $(HCC)
-	GPUCCXX = $(HCXX)
+	GPUCXX = $(HCXX)
 endif
 
 # select compiler used for openmp
@@ -129,87 +137,113 @@ OCLCXX = $(CXXGPU)
 # flags common to all c, c++, fortran compilers
 COMMONFLAGS = $(OPTFLAGS)
 
-# define formatting characters for info output
-NULL :=
-TAB := $(NULL)  $(NULL)
 
-#
-.PHONY : allinfo
-allinfo : configinfo buildinfo makecommands
+# file expansions and related variables
 
-# information about current configuration
-.PHONY : configinfo
-configinfo :
-	$(info Compiler options:)
-	$(info > Compiler can be selected with COMPILERTYPE=(GCC|CLANG|AOMP|CRAY))
-	$(info > GPU compiler can be selected with GPUTYPE=(NVIDIA|AMD))
-	$(info > Optimisation level can be selected with OPTLEVEL=(0|1|2|3))
-	$(info > Profiling can be turned on/off with PROFILER=(OFF|ON))
-	$(info )
+# define source files (from contents of src/)
+SRCS := $(wildcard src/*.f*) $(wildcard src/*.F*)
 
-# information about current build given the commands make was passed
-.PHONY : buildinfo
-buildinfo :
-	$(info Current compilers selected:)
-	$(info > Compiling with ($(CC)|$(CXX)|$(FORT)) for CPU focused codes)
-	$(info > Compiling with ($(MPICC)|$(MPICXX)|$(MPIFORT)) \
-	for MPI-CPU focused codes)
-	$(info > Compiling with ($(GPUCC)|$(GPUCXX)) for GPU focused codes)
-	$(info > Compiling with ($(OMPCC)|$(OMPCXX)|$(OMPFORT)) \
-	for OpenMP directive GPU focused codes)
-	$(info > Compiling with ($(OACCCC)|$(OACCCXX)|$(OACCFORT)) \
-	for OpenACC directive GPU focused codes)
-	$(info )
+# define the base-names and file-suffixes of the source files
+BSNS := $(notdir $(basename $(SRCS)))
+SUFS := $(suffix $(SRCS))
 
-# information about current make commands available
-.PHONY : makecommands
-makecommands :
-	$(info Make commands:)
-	$(info > Make is configured so that the following can be compiled \
-	if provided this argument:)
-	$(info )
+# define the object and module files for each source file
+OBJS := $(addprefix obj/,$(addsuffix .o, $(BSNS)))
+MODS := $(addprefix mod/,$(addsuffix .mod, $(BSNS)))
 
-#
+# define binary targets to be made
+BINS :=
+
+
+# make commands
+
+# make obj/, mod/, bin/ directories if they dont already exist
 .PHONY : dirs
 dirs :
 	[ -d obj ] || mkdir obj
 	[ -d mod ] || mkdir mod
 	[ -d bin ] || mkdir bin
 
-#
+# remove contents of obj/, mod/, bin/ directories
 .PHONY : clean
 clean :
 	rm -f obj/*
 	rm -f mod/*
 	rm -f bin/*
 
-# source files
-SRCS := $(wildcard src/*.f*)
-
-# general make commands for (f|f90|f95|f03|f08) files
-# # src/*.f
-# obj/%.o : src/%.f
-# 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -c $< -o $@ -J mod/
-
-# # src/*.f90
-# obj/%.o : src/%.f90
-# 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -c $< -o $@ -J mod/
-
-# src/*.(f*)
-obj/%.o : src/%.$(wildcard f*)
+# implicit rule for arbitrary fortan targets
+# 	obj/%.o : src/%.f
+# 	obj/%.o : src/%.f90
+# 	obj/%.o : src/%.f95
+# 	...
+obj/%.o : $(firstword $(addprefix src/%,$(SUFS)))
 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -c $< -o $@ -J mod/
 
-# specific make target for file with dependency
-# obj/example1.o : src/example1.f90 obj/example2.o
-# 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -c $^ -o $@ -J mod/
+# explicit target dependencies
+# ...
 
-# # bin/*
-# bin/main : src/main.f90 \
-# 	obj/rsg.o obj/intp.o obj/wigner.o obj/io.o obj/integrate.o obj/laguerre.o
+# implicit rule for binary targets
+bin/% : $(OBJS)
+	$(FORT) $(COMMONFLAGS) $(FFLAGS) -o $@ $(OBJS)
 
-# 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -c src/potential_curves.f90 \
-# 	-o obj/potential_curves.o -I mod/
 
-# 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -o bin/potential_curves \
-# 	obj/potential_curves.o obj/rsg.o obj/wigner.o obj/intp.o \
-# 	obj/io.o obj/integrate.o obj/laguerre.o
+# info commands
+
+# define formatting characters for info output
+NULL :=
+TAB := $(NULL)  $(NULL)
+
+# all information targets
+.PHONY : info_all
+info_all : info_config info_build info_make info_dirs info_files
+
+# information about makefile configuration
+.PHONY : info_config
+info_config :
+	@echo "Makefile configuration options (with defaults):"
+	@echo "> COMPILERTYPE ?= [GCC] | CLANG | AOMP | CRAY"
+	@echo "> GPUTYPE      ?= [NVIDIA] | AMD"
+	@echo "> OPTLEVEL     ?= 0 | 1 | [2] | 3"
+	@echo "> PROFILER     ?= [OFF] | ON"
+
+# information about current build given the commands make was passed
+.PHONY : info_build
+info_build :
+	@echo "Compilers currently selected for (C, C++, FORTRAN) codes:"
+	@echo "> CPU         := ($(CC), $(CXX), $(FORT))"
+	@echo "> MPI         := ($(MPICC), $(MPICXX), $(MPIFORT))"
+	@echo "> GPU         := ($(GPUCC), $(GPUCXX), )"
+	@echo "> GPU-OpenMP  := ($(OMPCC), $(OMPCXX), $(OMPFORT))"
+	@echo "> GPU-OpenACC := ($(OACCCC), $(OACCCXX), $(OACCFORT))"
+
+# information about contents of src/, obj/, mod/, bin/ directories
+.PHONY : info_dirs
+info_dirs :
+	@echo "Directory contents:"
+	@echo "> src/* = $(wildcard src/*)"
+	@echo "> obj/* = $(wildcard obj/*)"
+	@echo "> mod/* = $(wildcard mod/*)"
+	@echo "> bin/* = $(wildcard bin/*)"
+
+# information about source, base name, and object files
+.PHONY : info_files
+info_files :
+	@echo "Source files (and derived files):"
+	@echo "> SRCS := $(SRCS)"
+	@echo "> BSNS := $(BSNS)"
+	@echo "> SUFS := $(SUFS)"
+	@echo "> OBJS := $(OBJS)"
+	@echo "> MODS := $(MODS)"
+
+# information about current make commands available
+.PHONY : info_make
+info_make :
+	@echo "Make commands:"
+	@echo "> clean       : Removes contents of obj/, mod/, bin/."
+	@echo "> dirs        : Creates obj/, mod/, bin/ if they dont exist."
+	@echo "> info_all    : All info_* commands."
+	@echo "> info_config : Configuration options for makefile."
+	@echo "> info_build  : The current compilers selected in makefile."
+	@echo "> info_dirs   : The contents of relevant directories."
+	@echo "> info_files  : The file expansions used in makefile."
+	@echo "> info_make   : The make commands available."
