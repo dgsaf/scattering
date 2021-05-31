@@ -1,0 +1,5 @@
+*
+!.gitignore
+!base.sty
+!scattering_reference.tex
+!scattering_reference.pdf
