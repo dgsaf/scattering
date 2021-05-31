@@ -177,13 +177,16 @@ clean :
 # 	obj/%.o : src/%.f95
 # 	...
 obj/%.o : $(firstword $(addprefix src/%,$(SUFS)))
+	@echo "> $@ : $^"
 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -c $< -o $@ -J mod/
 
 # explicit target dependencies
-# ...
+obj/parameters.o : src/debug.h
+obj/basis.o : src/debug.h obj/parameters.o
 
 # implicit rule for binary targets
 bin/% : $(OBJS)
+	@echo "> $@ : $^"
 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -o $@ $(OBJS)
 
 
