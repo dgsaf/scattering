@@ -1,23 +1,31 @@
-# header
+# makefile
+# author: Tom Ross
+# email: tom.ross@protonmail.com
+# github: dgsaf
+#
+# Derived from a makefile provided by Dr Elahi Pascal, in 20201, for
+# phys4004 (high performance computing) - assignment 1, at Curtin university.
 
 
 # makefile configuration settings
 
-# make flags, with optional default values
-# COMPILERTYPE = (GCC|CLANG|AOMP|CRAY|INTEL)
-# GPUTYPE = (NVIDIA|AMD)
-# OPTLEVEL = (0|1|2|3)
-# PROFILER = (OFF|ON)
+# possible flags for makefile configuration
+OPT_COMPILERTYPE := GCC CLANG AOMP CRAY INTEL
+OPT_GPUTYPE := NVIDIA AMD
+OPT_OPTLEVEL := 0 1 2 3 fast s g
+OPT_PROFILING := OFF ON
+
+# select flags for make configuration
 COMPILERTYPE ?= GCC
 GPUTYPE ?= NVIDIA
 OPTLEVEL ?= 2
-PROFILER ?= OFF
+PROFILING ?= OFF
 
 # set optmisation flags
 OPTFLAGS = -O$(OPTLEVEL)
 
 # set profiling flags
-ifeq ($(PROFILER), ON)
+ifeq ($(PROFILING), ON)
 	OPTFLAGS += -pg -g
 endif
 
@@ -140,44 +148,72 @@ COMMONFLAGS = $(OPTFLAGS)
 
 # file expansions and related variables
 
-# define source files (from contents of src/)
-SRCS := $(wildcard src/*.f*) $(wildcard src/*.F*)
+# define source files
+SRCS_C := $(wildcard src/*.c)
+SRCS_H := $(wildcard src/*.h)
+SRCS_CXX := $(wildcard src/*.cpp)
+SRCS_HXX := $(wildcard src/*.hpp)
+SRCS_F := $(wildcard src/*.f*) $(wildcard src/*.F*)
+
+# select fortran files (and c header files for preprocessing)
+HDRS := $(SRCS_H)
+SRCS := $(SRCS_F)
 
 # define the base-names and file-suffixes of the source files
 BSNS := $(notdir $(basename $(SRCS)))
-SUFS := $(suffix $(SRCS))
+EXTS := $(suffix $(SRCS))
 
 # define the object and module files for each source file
-OBJS := $(addprefix obj/,$(addsuffix .o, $(BSNS)))
-MODS := $(addprefix mod/,$(addsuffix .mod, $(BSNS)))
+OBJS := $(addprefix obj/,$(addsuffix .o,$(BSNS)))
+MODS := $(addprefix mod/,$(addsuffix .mod,$(BSNS)))
 
 # define binary targets to be made
 BINS :=
 
 
-# make commands
+# define formatting characters for info output
+NULL :=
+TAB := $(NULL)- $(NULL)
+PFX := $(NULL)> $(NULL)
 
-# make obj/, mod/, bin/ directories if they dont already exist
+
+# directory commands
+
+# make obj/, mod/, bin/ if they dont already exist
 .PHONY : dirs
 dirs :
 	[ -d obj ] || mkdir obj
 	[ -d mod ] || mkdir mod
 	[ -d bin ] || mkdir bin
 
-# remove contents of obj/, mod/, bin/ directories
+
+# clean commands
+
+# all clean commands (obj/, mod/, bin/)
 .PHONY : clean
-clean :
+clean : clean_obj clean_mod clean_bin
+
+# clean obj/
+.PHONY : clean_obj
+clean_obj :
 	rm -f obj/*
+
+# clean mod/
+.PHONY : clean_mod
+clean_mod :
 	rm -f mod/*
+
+# clean bin/
+.PHONY : clean_bin
+clean_bin :
 	rm -f bin/*
 
+
+# make commands
+
 # implicit rule for arbitrary fortan targets
-# 	obj/%.o : src/%.f
-# 	obj/%.o : src/%.f90
-# 	obj/%.o : src/%.f95
-# 	...
-obj/%.o : $(firstword $(addprefix src/%,$(SUFS)))
-	@echo "> $@ : $^"
+obj/%.o : $(firstword $(addprefix src/%,$(EXTS)))
+	@echo "$(PFX)$@ : $^"
 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -c $< -o $@ -J mod/
 
 # explicit target dependencies
@@ -187,68 +223,63 @@ obj/basis.o : src/debug.h obj/parameters.o
 
 # implicit rule for binary targets
 bin/% : $(OBJS)
-	@echo "> $@ : $^"
+	@echo "$(PFX)$@ : $^"
 	$(FORT) $(COMMONFLAGS) $(FFLAGS) -o $@ $(OBJS)
 
 
 # info commands
 
-# define formatting characters for info output
-NULL :=
-TAB := $(NULL)  $(NULL)
-
 # all information targets
-.PHONY : info_all
-info_all : info_config info_build info_make info_dirs info_files
+.PHONY : info
+info : info_config info_build info_commands info_files
 
 # information about makefile configuration
 .PHONY : info_config
 info_config :
-	@echo "Makefile configuration options (with defaults):"
-	@echo "> COMPILERTYPE ?= [GCC] | CLANG | AOMP | CRAY"
-	@echo "> GPUTYPE      ?= [NVIDIA] | AMD"
-	@echo "> OPTLEVEL     ?= 0 | 1 | [2] | 3"
-	@echo "> PROFILER     ?= [OFF] | ON"
+	@echo "Makefile configuration options (with [selected]):"
+	@echo "$(PFX)COMPILERTYPE ?=" \
+		"$(patsubst $(COMPILERTYPE),[$(COMPILERTYPE)],$(OPT_COMPILERTYPE))"
+	@echo "$(PFX)GPUTYPE      ?=" \
+		"$(patsubst $(GPUTYPE),[$(GPUTYPE)],$(OPT_GPUTYPE))"
+	@echo "$(PFX)OPTLEVEL     ?=" \
+		"$(patsubst $(OPTLEVEL),[$(OPTLEVEL)],$(OPT_OPTLEVEL))"
+	@echo "$(PFX)PROFILING    ?=" \
+		"$(patsubst $(PROFILING),[$(PROFILING)],$(OPT_PROFILING))"
 
 # information about current build given the commands make was passed
 .PHONY : info_build
 info_build :
 	@echo "Compilers currently selected for (C, C++, FORTRAN) codes:"
-	@echo "> CPU         := ($(CC), $(CXX), $(FORT))"
-	@echo "> MPI         := ($(MPICC), $(MPICXX), $(MPIFORT))"
-	@echo "> GPU         := ($(GPUCC), $(GPUCXX), )"
-	@echo "> GPU-OpenMP  := ($(OMPCC), $(OMPCXX), $(OMPFORT))"
-	@echo "> GPU-OpenACC := ($(OACCCC), $(OACCCXX), $(OACCFORT))"
-
-# information about contents of src/, obj/, mod/, bin/ directories
-.PHONY : info_dirs
-info_dirs :
-	@echo "Directory contents:"
-	@echo "> src/* = $(wildcard src/*)"
-	@echo "> obj/* = $(wildcard obj/*)"
-	@echo "> mod/* = $(wildcard mod/*)"
-	@echo "> bin/* = $(wildcard bin/*)"
+	@echo "$(PFX)CPU         := ($(CC), $(CXX), $(FORT))"
+	@echo "$(PFX)MPI         := ($(MPICC), $(MPICXX), $(MPIFORT))"
+	@echo "$(PFX)GPU         := ($(GPUCC), $(GPUCXX),)"
+	@echo "$(PFX)GPU-OpenMP  := ($(OMPCC), $(OMPCXX), $(OMPFORT))"
+	@echo "$(PFX)GPU-OpenACC := ($(OACCCC), $(OACCCXX), $(OACCFORT))"
 
 # information about source, base name, and object files
 .PHONY : info_files
 info_files :
-	@echo "Source files (and derived files):"
-	@echo "> SRCS := $(SRCS)"
-	@echo "> BSNS := $(BSNS)"
-	@echo "> SUFS := $(SUFS)"
-	@echo "> OBJS := $(OBJS)"
-	@echo "> MODS := $(MODS)"
-	@echo "> BINS := $(BINS)"
+	@echo "Source files (and their derived files) and binaries:"
+	@echo "$(PFX)HDRS := $(HDRS)"
+	@echo "$(PFX)SRCS := $(SRCS)"
+	@echo "$(PFX)$(TAB)BSNS := $(BSNS)"
+	@echo "$(PFX)$(TAB)EXTS := $(EXTS)"
+	@echo "$(PFX)OBJS := $(OBJS)"
+	@echo "$(PFX)MODS := $(MODS)"
+	@echo "$(PFX)BINS := $(BINS)"
 
 # information about current make commands available
-.PHONY : info_make
-info_make :
+.PHONY : info_commands
+info_commands :
 	@echo "Make commands:"
-	@echo "> clean       : Removes contents of obj/, mod/, bin/."
-	@echo "> dirs        : Creates obj/, mod/, bin/ if they dont exist."
-	@echo "> info_all    : All info_* commands."
-	@echo "> info_config : Configuration options for makefile."
-	@echo "> info_build  : The current compilers selected in makefile."
-	@echo "> info_dirs   : The contents of relevant directories."
-	@echo "> info_files  : The file expansions used in makefile."
-	@echo "> info_make   : The make commands available."
+	@echo "$(PFX)info  : All info_* commands"
+	@echo "$(PFX)$(TAB)info_config   : Configuration options for makefile"
+	@echo "$(PFX)$(TAB)info_build    : The current compilers selected in makefile"
+	@echo "$(PFX)$(TAB)info_dirs     : The contents of relevant directories"
+	@echo "$(PFX)$(TAB)info_files    : The file expansions used in makefile"
+	@echo "$(PFX)$(TAB)info_commands : The make commands available"
+	@echo "$(PFX)dirs  : Creates obj/, mod/, bin/ if they dont exist"
+	@echo "$(PFX)clean : All clean_* commands"
+	@echo "$(PFX)$(TAB)clean_obj : Removes contents of obj/"
+	@echo "$(PFX)$(TAB)clean_mod : Removes contents of mod/"
+	@echo "$(PFX)$(TAB)clean_bin : Removes contents of bin/"
