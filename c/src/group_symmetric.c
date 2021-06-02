@@ -6,7 +6,11 @@
 
 #include "group_symmetric.h"
 
+#include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
+#include <stdio.h>
 #include <assert.h>
 
 // integer type
@@ -64,7 +68,7 @@ typedef struct Permutation Permutation;
 // actions of permutations types
 
 // transpose:
-u_int transpose(Transposition * t, u_int i)
+u_int transpose(Transposition const * const t, u_int const i)
 {
   if (i == t->left)
   {
@@ -80,18 +84,18 @@ u_int transpose(Transposition * t, u_int i)
 }
 
 // cycle:
-u_int cycle(Cycle * c, u_int i)
+u_int cycle(Cycle const * const c, u_int const i)
 {
-  u_int idx = 0;
+  u_int ii = 0;
 
   // case of `i` being the not-last element of the cycle
-  while (idx < c->length - 1)
+  while (ii < c->length - 1)
   {
-    if (i == c->map[idx])
+    if (i == c->map[ii])
     {
-      return (c->map[idx+1]);
+      return (c->map[ii+1]);
     }
-    ++idx;
+    ++ii;
   }
 
   // case of `i` being the last element of the cycle
@@ -105,7 +109,7 @@ u_int cycle(Cycle * c, u_int i)
 }
 
 // permute:
-u_int permute(Permutation * p, u_int i)
+u_int permute(Permutation const * const p, u_int const i)
 {
   assert(i < p->degree);
 
@@ -117,14 +121,30 @@ u_int permute(Permutation * p, u_int i)
 
 // view
 
+// view_transposition:
+const char * view_transposition(Transposition const * const t)
+{
+  // format string
+  const char fmt[] = "(%i %i)";
+
+  // safely determine size of `str` needed
+  const int len = snprintf(NULL, 0, fmt, t->left, t->right);
+  char * str = (char *)malloc(sizeof(char) * (size_t)(len + 1));
+  const int remaining = snprintf(str, 0, fmt, t->left, t->right);
+
+  assert(remaining == 0);
+
+  return str;
+}
 
 // constructors
 
 // new_transposition:
 // notes:
 // - the ordering of `left`, `right` is arbitrary, so we choose `left < right`
-new_transposition(Transposition * t, u_int left, u_int right)
+void new_transposition(Transposition * const t, u_int const left, u_int const right)
 {
+  // order `t->left = min(left, right)`, `t->right = max(left, right)`
   if (left <= right)
   {
     t->left = left;
@@ -137,4 +157,114 @@ new_transposition(Transposition * t, u_int left, u_int right)
   }
 }
 
+// new_cycle:
+void new_cycle(Cycle * const c, u_int const length, u_int const * const map)
+{
+  // ensure all elements of `map` are unique
+  bool valid = true;
+  u_int ii = 0;
+
+  while (valid && ii < length)
+  {
+    u_int jj = ii + 1;
+
+    while (valid && jj < length)
+    {
+      // ensure `map[ii]` is unique in `map`
+      valid = valid && (map[ii] != map[jj]);
+      ++jj;
+    }
+
+    ++ii;
+  }
+
+  assert(valid);
+
+  // set `c->length` to `length`
+  c->length = length;
+
+  // free `c->map` if it is allocated
+  if (c->map != NULL) free(c->map);
+  c->map = NULL;
+
+  // copy`c->map` from `map` if `length` is non-zero
+  if (length > 0)
+  {
+    c->map = (u_int *)malloc(sizeof(u_int) * length);
+    memcpy(c->map, map, length);
+  }
+}
+
+// new_permutation:
+void new_permutation(Permutation * const p, u_int const degree, u_int const * const map)
+{
+  // ensure all elements of `map` are unique, and are in `S(degree)`
+  bool valid = true;
+  u_int ii = 0;
+
+  while (valid && ii < degree)
+  {
+    u_int jj = ii + 1;
+
+    // ensure `map[ii] in S(degree)`
+    valid = valid && (map[ii] < degree);
+
+    while (valid && jj < degree)
+    {
+      // ensure `map[ii]` is unique in `map`
+      valid = valid && (map[ii] != map[jj]);
+      ++jj;
+    }
+
+    ++ii;
+  }
+
+  assert(valid);
+
+  // set `p->degree` to `degree`
+  p->degree = degree;
+
+  // free `p->map` if it is allocated
+  if (p->map != NULL) free(p->map);
+  p->map = NULL;
+
+  // copy `p->map` from `map` if `degree` is non-zero
+  if (degree > 0)
+  {
+    p->map = (u_int *)malloc(sizeof(u_int) * degree);
+    memcpy(p->map, map, degree);
+  }
+}
+
 // free
+
+// free_transposition:
+// notes:
+// - transpositions have no allocated memory to free
+void free_transposition(Transposition * const t)
+{
+  t->left = 0;
+  t->right = 0;
+}
+
+// free_cycle:
+void free_cycle(Cycle * const c)
+{
+  // free `c->map` if it is allocated
+  if (c->map != NULL) free(c->map);
+  c->map = NULL;
+
+  // set `c->length` to
+  c->length = 0;
+}
+
+// free_permutation:
+void free_permutation(Permutation * const p)
+{
+  // free `p->map` if it is allocated
+  if (p->map != NULL) free(p->map);
+  p->map = NULL;
+
+  // set `p->degree`
+  p->degree = 0;
+}

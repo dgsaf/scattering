@@ -53,7 +53,11 @@ CRAYFORT = ftn
 INTELFORT = ifort
 
 # c compilation flags
-GCCCFLAGS = -std=c11
+GCCCFLAGS = -std=c11 -pedantic \
+	-Wall -Wextra -Wfloat-equal -Wundef -Wshadow -Wpointer-arith -Wcast-align \
+	-Wstrict-prototypes -Wwrite-strings -Waggregate-return -Wcast-qual \
+	-Wswitch-default -Wswitch-enum -Wconversion -Wunreachable-code \
+	-Winit-self -Wuninitialized
 
 # fortran compilation flags
 GCCFFLAGS = -cpp  -dM -ffixed-line-length-none \
