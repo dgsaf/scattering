@@ -1,8 +1,8 @@
 //
 // notation:
-// - S(n) = {0, ..., n-1}
+// - S(n) = {1, ..., n}
 // notes:
-// - 0-indexing is used rather than 1-indexing
+// - 1-indexing is used for the outwards interface, rather than 0-indexing
 
 #ifndef GROUP_SYMMETRIC_H
 #define GROUP_SYMMETRIC_H

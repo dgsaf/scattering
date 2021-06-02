@@ -1,8 +1,8 @@
 //
 // notation:
-// - S(n) = {0, ..., n-1}
+// - S(n) = {1, ..., n}
 // notes:
-// - 0-indexing is used rather than 1-indexing
+// - 1-indexing is used for the outwards interface, rather than 0-indexing
 
 #include "group_symmetric.h"
 
@@ -101,9 +101,9 @@ u_int cycle(Cycle const * const c, u_int const i)
 // permute:
 u_int permute(Permutation const * const p, u_int const i)
 {
-  assert(i < p->degree);
+  assert((0 < i) && (i <= p->degree));
 
-  return (p->map[i]);
+  return (p->map[i-1]);
 }
 
 // decompositions
@@ -191,11 +191,11 @@ char * view_permutation(Permutation const * const p)
 
   // safely determine size of `str` needed
   int len = snprintf(NULL, 0, fmt_l);
-  for (u_int ii = 0; ii < p->degree; ii++)
+  for (u_int ii = 1; ii <= p->degree; ii++)
   {
-    len += snprintf(NULL, 0, fmt_element, ii, p->map[ii]);
+    len += snprintf(NULL, 0, fmt_element, ii, permute(p, ii));
 
-    if (ii < p->degree - 1)
+    if (ii < p->degree)
     {
       len += snprintf(NULL, 0, fmt_between);
     }
@@ -206,12 +206,12 @@ char * view_permutation(Permutation const * const p)
   char * str = (char *)malloc(sizeof(char) * (size_t)(len + 1));
 
   int mark = snprintf(str, (size_t)(len+1), fmt_l);
-  for (u_int ii = 0; ii < p->degree; ii++)
+  for (u_int ii = 1; ii <= p->degree; ii++)
   {
     mark += snprintf(str+mark, (size_t)(len-mark+1), fmt_element,
-                     ii, p->map[ii]);
+                     ii, permute(p, ii));
 
-    if (ii < p->degree - 1)
+    if (ii < p->degree)
     {
       mark += snprintf(str+mark, (size_t)(len-mark+1), fmt_between);
     }
@@ -379,7 +379,7 @@ bool valid_permutation(u_int const degree, u_int const * const map)
     u_int jj = ii + 1;
 
     // ensure `map[ii] in S(degree)`
-    valid = valid && (map[ii] < degree);
+    valid = valid && (0 < map[ii]) && (map[ii] <= degree);
 
     while (valid && jj < degree)
     {
